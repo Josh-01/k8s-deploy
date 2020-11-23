@@ -132,31 +132,27 @@ export function annotateChildPods(kubectl: Kubectl, resourceType: string, resour
 export async function getFilePathsConfigs(): Promise<any> {
 
     let filePathsConfig: any = {};
-    const BUILD_CONFIG_KEY = 'buildConfigs';
     const MANIFEST_PATHS_KEY = 'manifestFilePaths';
     const HELM_CHART_KEY = 'helmChartFilePaths';
+    const DOCKERFILE_PATH_KEY = 'dockerfilePaths';
     const DOCKERFILE_PATH_LABEL_KEY = 'dockerfile-path';
-    const DOCKERFILE_PATH_KEY = 'dockerfilePath';
-    const CONTAINER_REG_KEY = 'containerRegistryServer';
 
     let inputManifestFiles = inputParams.manifests || [];
-    filePathsConfig[MANIFEST_PATHS_KEY] = JSON.stringify(inputManifestFiles);
+    filePathsConfig[MANIFEST_PATHS_KEY] = inputManifestFiles;
 
-    let helmChartPath = process.env.HELM_CHART_PATH || '';
-    filePathsConfig[HELM_CHART_KEY] = helmChartPath;
+    let helmChartPaths = process.env.HELM_CHART_PATHS || '';
+    filePathsConfig[HELM_CHART_KEY] = helmChartPaths;
 
     //Fetch labels from each image
-    let imageToBuildConfigMap: any = {};
+    let imageToBuildConfigMap: any = [];
     let imageNames = core.getInput('images').split('\n');
 
     for(const image of imageNames){
         let args: string[] = [image];
         let resultObj: any;
-        let buildConfigMap : any = {};
-        let containerRegistryName = image.toString().split('/')[0];
+        let containerRegistryName = image;
 
         try{
-
             let usrname = process.env.CR_USERNAME || null;
             let pwd = process.env.CR_PASSWORD || null;
             if(pwd && usrname)
@@ -180,7 +176,7 @@ export async function getFilePathsConfigs(): Promise<any> {
                     throw new Error(`docker inspect call failed with: ${res.stderr.match(/(.*)\s*$/)![0]}`);
                 }
 
-                if(res.stdout!= null && res.stdout != ''){
+                if(!res.stdout){
                     resultObj = JSON.parse(res.stdout);
                 }
             });   
@@ -189,22 +185,15 @@ export async function getFilePathsConfigs(): Promise<any> {
             core.warning(`Failed to get dockerfile paths for image ${image.toString()} | ` + ex);
         }
 
-        if(resultObj != null){
+        if(!resultObj){
             resultObj = resultObj[0];
-
-            if(resultObj.Config != null && resultObj.Config.Labels != null && resultObj.Config.Labels[DOCKERFILE_PATH_LABEL_KEY] !=null){
-                buildConfigMap[DOCKERFILE_PATH_KEY] = resultObj.Config.Labels[DOCKERFILE_PATH_LABEL_KEY];
-            } 
-
-            //Add CR server name to build config
-            buildConfigMap[CONTAINER_REG_KEY] = containerRegistryName;
-            if(resultObj.Id != null){
-                imageToBuildConfigMap[resultObj.Id] = buildConfigMap;
+            if(!(resultObj.Config) && !(resultObj.Config.Labels) && !(resultObj.Config.Labels[DOCKERFILE_PATH_LABEL_KEY])){
+                imageToBuildConfigMap[image] = resultObj.Config.Labels[DOCKERFILE_PATH_LABEL_KEY];
             }
         }
     }
     
-    filePathsConfig[BUILD_CONFIG_KEY] = JSON.stringify(imageToBuildConfigMap);
+    filePathsConfig[DOCKERFILE_PATH_KEY] = imageToBuildConfigMap;
 
     return Promise.resolve(filePathsConfig); 
 }
